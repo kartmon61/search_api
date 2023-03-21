@@ -1,6 +1,9 @@
 # search_api
 카카오 api와 네이버api를 사용한 블로그 검색 서비스 입니다.
 
+JAR 파일 실행 방법
+- search.jar 다운 받은 후, 파일이 있는 위치에서 java -jar search.jar 실행
+
 API 명세
 
 1. 블로그 검색 API
