@@ -8,9 +8,13 @@ import static org.mockito.Mockito.when;
 
 import com.test.search.common.dto.response.SearchResult;
 import com.test.search.common.dto.response.SearchResult.Blog;
+import com.test.search.externalapi.common.exception.ExternalApiErrorCode;
+import com.test.search.externalapi.common.exception.ExternalApiException;
 import com.test.search.externalapi.common.source.SearchSource;
 import com.test.search.externalapi.common.source.SearchSourceFactory;
 import com.test.search.externalapi.common.type.SearchType;
+import com.test.search.externalapi.kakao.source.KakaoSearchSourceImpl;
+import com.test.search.externalapi.naver.source.NaverSearchSourceImpl;
 import com.test.search.searchapi.dto.PopularKeywordResponse;
 import com.test.search.searchapi.entity.SearchHistory;
 import com.test.search.searchapi.entity.SearchKeyword;
@@ -40,6 +44,11 @@ class BlogSearchServiceTest {
     private SearchSourceFactory searchSourceFactory;
     @Mock
     private SearchSource searchSource;
+    @Mock
+    private KakaoSearchSourceImpl kakaoSearchSource;
+    @Mock
+    private NaverSearchSourceImpl naverSearchSource;
+
 
     private SearchResult searchResult;
 
@@ -146,4 +155,58 @@ class BlogSearchServiceTest {
         verify(searchKeywordRepository, times(1)).findTop10ByOrderByCountDesc();
     }
 
+    @Test
+    @DisplayName("SearchBlogs 로직 중 카카오 api에서 문제가 발생했을 때 네이버 api로 키워드 실행하는 로직 테스트")
+    void testSearchBlogsFallbackToNaver() {
+        String query = "java";
+        String sort = "accuracy";
+        Integer page = 1;
+        Integer size = 10;
+
+        SearchResult expectedSearchResult = SearchResult.builder()
+            .totalPages(1)
+            .totalElements(2)
+            .content(Arrays.asList(
+                Blog.builder()
+                    .title("title1")
+                    .contents("description1")
+                    .build(),
+                Blog.builder()
+                    .title("title2")
+                    .contents("description2")
+                    .build()))
+            .build();
+
+        when(searchSourceFactory.createSearchSource(SearchType.KAKAO)).thenReturn(kakaoSearchSource);
+        when(searchSourceFactory.createSearchSource(SearchType.NAVER)).thenReturn(naverSearchSource);
+        when(kakaoSearchSource.searchBlogs(query, sort, page, size)).thenThrow(new ExternalApiException(ExternalApiErrorCode.API_CONNECTION_ERROR));
+        when(naverSearchSource.searchBlogs(query, sort, page, size)).thenReturn(expectedSearchResult);
+
+        blogSearchService.searchBlogs(query, sort, page, size);
+        verify(searchSourceFactory, times(1)).createSearchSource(SearchType.KAKAO);
+        verify(kakaoSearchSource, times(1)).searchBlogs(query, sort, page, size);
+        verify(searchSourceFactory, times(1)).createSearchSource(SearchType.NAVER);
+        verify(naverSearchSource, times(1)).searchBlogs(query, sort, page, size);
+        verify(searchKeywordRepository, times(1)).findByKeyword(query);
+        verify(searchKeywordRepository, times(1)).save(any(SearchKeyword.class));
+        verify(searchHistoryRepository, times(1)).save(any(SearchHistory.class));
+    }
+
+    @Test
+    @DisplayName("SearchBlogs 로직 중 카카오 api, 네이버 api 모두 문제가 발생했을 경우 에러를 던짐")
+    void testSearchBlogsKakaoAndNaverApiFailed() {
+        String query = "java";
+        String sort = "accuracy";
+        Integer page = 1;
+        Integer size = 10;
+
+        when(searchSourceFactory.createSearchSource(SearchType.KAKAO)).thenReturn(kakaoSearchSource);
+        when(searchSourceFactory.createSearchSource(SearchType.NAVER)).thenReturn(naverSearchSource);
+        when(kakaoSearchSource.searchBlogs(query, sort, page, size)).thenThrow(new ExternalApiException(ExternalApiErrorCode.API_CONNECTION_ERROR));
+        when(naverSearchSource.searchBlogs(query, sort, page, size)).thenThrow(new ExternalApiException(ExternalApiErrorCode.API_CONNECTION_ERROR));
+
+        assertThatThrownBy(() -> blogSearchService.searchBlogs(query, sort, page, size))
+            .isInstanceOf(ExternalApiException.class)
+            .hasMessageContaining(ExternalApiErrorCode.API_CONNECTION_ERROR.getMessage());
+    }
 }

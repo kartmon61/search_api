@@ -39,7 +39,7 @@ public class SearchKeyword {
 
     public SearchKeyword(String keyword) {
         this.keyword = keyword;
-        this.count = 1L;
+        this.count = 0L;
         this.searchHistoryList = new ArrayList<>();
     }
 
